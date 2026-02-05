@@ -1,0 +1,14 @@
+{
+    "empire_battle_base_damage": 4,
+    "nomads_battle_base_damage": 3,
+    "empire_soldier_hp": 9,
+    "nomads_cavalry_hp": 12,
+    "empire_unit_production_cost": 9,
+    "nomads_unit_production_cost": 8,
+    "empire_farmer_gather_amount": 1,
+    "nomads_kill_resource_gain": 7,
+    "initial_resources": 10,
+    "score_per_resource": 0.1,
+    "score_per_battle_won": 3,
+    "score_per_surviving_unit": 5
+}

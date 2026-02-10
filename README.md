@@ -10,7 +10,7 @@ RuleSmith uses Large Language Models to play a simplified strategy game (CivMini
 - Bayesian Optimization with adaptive sampling
 - Multi-GPU parallel game simulation
 
-[Project Page](https://adonis-galaxy.github.io/RuleSmith-website/) ｜ [Paper]()
+[Project Page](https://adonis-galaxy.github.io/RuleSmith-website/) ｜ [Paper](https://arxiv.org/abs/2602.06232)
 
 
 ## Installation

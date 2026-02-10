@@ -78,8 +78,10 @@ RuleSmith/
 ## Citation
 
 ```bibtex
-@article{rulesmith2026,
-  title = {RuleSmith: Multi-Agent LLMs for Automated Game Balancing},
+@article{zeng2026rulesmith,
+  title = {Rulesmith: multi-agent llms for automated game balancing},
+  author = {Zeng, Ziyao and Liu, Chen and Liu, Tianyu and Wang, Hao and Sun, Xiatao and Yang, Fengyu and Liu, Xiaofeng and Fan, Zhiwen},
+  journal={arXiv preprint arXiv:2602.06232},
   year = {2026}
 }
 ```

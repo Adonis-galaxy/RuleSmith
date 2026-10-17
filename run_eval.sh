@@ -99,10 +99,14 @@ CMD="$CMD --num-gpus $NUM_GPUS"
 CMD="$CMD $THETA_ARG"
 CMD="$CMD $EXTRA_ARGS"
 
+LOG_FILE="logs/eval_$(date +%Y%m%d_%H%M%S).log"
 echo "Running: $CMD"
+echo "Console log: $LOG_FILE"
 echo ""
 
-eval $CMD
+# Keep the full console output (including the engine's per-action log lines)
+set -o pipefail
+eval $CMD 2>&1 | tee "$LOG_FILE"
 
 echo ""
 echo "============================================================"

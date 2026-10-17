@@ -870,17 +870,22 @@ class MultiAgentManager:
                             actions[unit_id] = action
                         else:
                             # Use fallback
+                            logger.info(f"PARSE_FALLBACK reason=illegal unit={unit_id}")
                             actions[unit_id] = self._choose_fallback_for_unit(unit_id, legal_actions)
                     except:
+                        logger.info(f"PARSE_FALLBACK reason=error unit={unit_id}")
                         actions[unit_id] = self._choose_fallback_for_unit(unit_id, legal_actions)
                 else:
                     # Unit not in response, use fallback
+                    logger.info(f"PARSE_FALLBACK reason=missing unit={unit_id}")
                     actions[unit_id] = self._choose_fallback_for_unit(unit_id, legal_actions)
         else:
             # Failed to parse, use fallback for all
             for unit_id in unit_ids:
+                logger.info(f"PARSE_FALLBACK reason=unparseable unit={unit_id}")
                 actions[unit_id] = self._choose_fallback_for_unit(unit_id, legal_actions)
-        
+
+        logger.info(f"PARSE_STATS total={len(unit_ids)}")
         return actions
     
     def _is_action_legal_for_unit(self, action: Action, legal_actions: List[Action]) -> bool:

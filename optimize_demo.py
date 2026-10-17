@@ -43,13 +43,16 @@ class TeeLogger:
     
     def write(self, message):
         self.terminal.write(message)
-        self.log.write(message)
         self.terminal.flush()
-        self.log.flush()
+        if not self.log.closed:
+            self.log.write(message)
+            self.log.flush()
     
     def flush(self):
+        # Interpreter shutdown flushes stdout after close(); a raise here exits with rc=120
         self.terminal.flush()
-        self.log.flush()
+        if not self.log.closed:
+            self.log.flush()
     
     def close(self):
         self.log.close()
@@ -138,6 +141,9 @@ def main():
     parser.add_argument('--adaptive-strategy', type=str, default='linear',
                         choices=['linear', 'uncertainty', 'acquisition'],
                         help='Adaptive strategy: linear (default), uncertainty (BO only), acquisition (BO only)')
+    parser.add_argument('--acq-func', type=str, default='EI',
+                        choices=['EI', 'LCB', 'PI', 'gp_hedge'],
+                        help='Bayesian-optimization acquisition function (default: EI)')
     parser.add_argument('--balance-threshold', type=float, default=0.1,
                         help='Log iterations with balance_score <= threshold (default: 0.1, i.e. 45-55%% win rate)')
     
@@ -151,11 +157,13 @@ def main():
     # Set random seed (if specified)
     if args.seed is not None:
         set_random_seed(args.seed)
+        effective_seed = args.seed
         print(f"Using fixed random seed: {args.seed}")
     else:
         import time
         random_seed = int(time.time() * 1000) % 1000000
         set_random_seed(random_seed)
+        effective_seed = random_seed
         print(f"Using random seed: {random_seed} (different each run)")
     
     print("CivMini - Parameter Optimization Demo")
@@ -241,13 +249,13 @@ def main():
     
     # Get baseline performance with default parameters (skip if resuming or multi-GPU)
     baseline_stats = None
+    # Needed by the final parameter-change summary even when the baseline is skipped
+    default_theta = get_default_theta()
     if not args.resume_from and args.num_gpus == 1:
         # Only run baseline for single-GPU mode (multi-GPU skips to save time)
         print("\n" + "="*60)
         print("BASELINE EVALUATION (Default Parameters)")
         print("="*60)
-        
-        default_theta = get_default_theta()
         
         try:
             baseline_results, baseline_stats = run_multiple_games(
@@ -305,6 +313,8 @@ def main():
             max_games=args.max_games,
             adaptive_strategy=args.adaptive_strategy,
             balance_threshold=args.balance_threshold,
+            seed=effective_seed,
+            acq_func=args.acq_func,
         )
         
         # Evaluate optimized parameters (skip for multi-GPU to save time)

@@ -17,9 +17,8 @@ imageio>=2.25.0
 # Utilities
 tqdm>=4.65.0
 
-# Optional: Alternative optimizers
-# nevergrad>=0.12.0
-# cma>=3.3.0
+# Optional: TPE baseline (optimize_tpe.py)
+# optuna>=4.0.0
 
 # Development (optional)
 # pytest>=7.0.0

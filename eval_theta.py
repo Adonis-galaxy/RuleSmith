@@ -152,11 +152,20 @@ Examples:
                         help='Verbose output')
     parser.add_argument('--mock', action='store_true',
                         help='Use mock LLM for testing')
-    
+    parser.add_argument('--seed', type=int, default=None,
+                        help='Random seed; also seeds each game as seed*100000+game_idx')
+
     args = parser.parse_args()
-    
+
     # Setup logging
     logger = setup_logging()
+
+    # Seed for reproducibility (per-game seeds consumed by run_single_game_worker)
+    if args.seed is not None:
+        from civmini.utils import set_random_seed
+        set_random_seed(args.seed)
+        os.environ['CIVMINI_SEED_BASE'] = str(args.seed * 100000)
+        print(f"Using fixed random seed: {args.seed}")
     
     # Get model paths
     empire_model = get_model_path(args.empire_model)
@@ -206,8 +215,15 @@ Examples:
     
     # Initialize LLMs
     print("\nInitializing LLMs...")
-    
-    if empire_model == nomads_model:
+
+    if args.num_gpus > 1 and not args.mock:
+        # Workers load their own copies; don't waste GPU 0 + load time in the main process
+        from civmini.llm_client import MockLLM
+        llm = MockLLM()
+        empire_llm = None
+        nomads_llm = None
+        print(f"Multi-GPU mode ({args.num_gpus} GPUs): models load in worker processes")
+    elif empire_model == nomads_model:
         # Same model for both
         llm = get_llm_client(model_name=empire_model, device='cuda', use_mock=args.mock)
         empire_llm = llm

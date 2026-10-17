@@ -55,6 +55,8 @@ class GameBalanceOptimizer:
         n_iterations: int = 100,  # Total iterations (for adaptive schedule)
         adaptive_strategy: str = "linear",  # "linear", "uncertainty", or "acquisition"
         balance_threshold: float = 0.1,  # Log iterations with balance_score <= threshold
+        seed: int = None,  # Seed for the BO initialization / surrogate randomness
+        acq_func: str = "EI",  # skopt acquisition: EI (default), LCB, PI, or gp_hedge
     ):
         """
         Initialize optimizer.
@@ -80,6 +82,8 @@ class GameBalanceOptimizer:
             balance_threshold: Log iterations with balance_score <= threshold (default: 0.1, i.e., 45-55% win rate)
         """
         self.llm = llm
+        self.seed = seed
+        self.acq_func = acq_func
         self.balance_threshold = balance_threshold
         self.config = config
         self.n_games_per_eval = n_games_per_eval
@@ -199,7 +203,7 @@ class GameBalanceOptimizer:
                 return self.min_games
             
             model = self._bo_optimizer.models[-1]
-            _, y_std = model.predict([x_next], return_std=True)
+            _, y_std = model.predict(self._bo_optimizer.space.transform([x_next]), return_std=True)
             
             # Get historical std values for normalization
             if len(self._acquisition_history) > 0:
@@ -240,7 +244,9 @@ class GameBalanceOptimizer:
             from scipy.stats import norm
             
             model = self._bo_optimizer.models[-1]
-            y_pred, y_std = model.predict([x_next], return_std=True)
+            # skopt fits the GP on normalized inputs, so query it in the same space
+            x_query = self._bo_optimizer.space.transform([x_next])[0]
+            y_pred, y_std = model.predict([x_query], return_std=True)
             
             # Best observed value so far
             y_best = min(self._bo_optimizer.yi) if self._bo_optimizer.yi else 0
@@ -306,7 +312,10 @@ class GameBalanceOptimizer:
         # Create iteration-specific log directory
         iter_log_dir = os.path.join(self.checkpoint_dir, f'../game_logs/iter_{iteration}')
         os.makedirs(iter_log_dir, exist_ok=True)
-        
+
+        # Distinct per-game seeds each iteration (consumed by run_single_game_worker)
+        os.environ['CIVMINI_SEED_BASE'] = str((self.seed if self.seed is not None else 0) * 100000 + iteration * 100)
+
         # Run games with this theta and capture detailed logs
         results, stats = run_multiple_games(
             theta=complete_theta,
@@ -396,6 +405,8 @@ class GameBalanceOptimizer:
             return self._optimize_bayesian(n_iterations, resume_from=resume_from)
         elif self.method == "evolution":
             return self._optimize_evolution(n_iterations, resume_from=resume_from)
+        elif self.method == "random":
+            return self._optimize_random(n_iterations)
         else:
             raise ValueError(f"Unknown method: {self.method}")
     
@@ -431,7 +442,9 @@ class GameBalanceOptimizer:
             
             # Initialize or restore state
             start_iteration = 0
-            optimizer = Optimizer(space, random_state=42)
+            bo_random_state = self.seed if self.seed is not None else 42
+            logger.info(f"BO random_state: {bo_random_state}, acq_func: {self.acq_func}")
+            optimizer = Optimizer(space, random_state=bo_random_state, acq_func=self.acq_func)
             self._bo_optimizer = optimizer  # Store for adaptive games
             
             if resume_from and os.path.exists(resume_from):
@@ -621,30 +634,26 @@ class GameBalanceOptimizer:
         """
         logger.info("Starting Random Search...")
         
-        best_theta = discretize_theta(get_default_theta())
-        best_score = self.objective_function(best_theta)
+        best_theta, best_score = None, float('inf')
         
-        for iteration in range(n_iterations - 1):
-            logger.info(f"\nIteration {iteration + 2}/{n_iterations}")
+        for iteration in range(n_iterations):
+            logger.info(f"\nIteration {iteration + 1}/{n_iterations}")
             
-            # Start with default values
+            # Sample optimizable parameters uniformly, then snap to the discrete rule grid
             random_theta = get_default_theta()
-            
-            # Random sample only for optimizable parameters
             for param_name in self.param_names:
                 lower, upper = self.theta_bounds[param_name]
                 random_theta[param_name] = np.random.uniform(lower, upper)
-            
-            # Keep fixed parameters at default
             for param_name, value in self.fixed_params.items():
                 random_theta[param_name] = value
+            random_theta = discretize_theta(random_theta)
             
             score = self.objective_function(random_theta)
             
             if score < best_score:
                 best_theta = random_theta
                 best_score = score
-                logger.info(f"  ✓ New best! Score: {best_score:.4f}")
+                logger.info(f"  New best! Score: {best_score:.4f}")
             else:
                 logger.info(f"  Score: {score:.4f} (best: {best_score:.4f})")
         
@@ -756,6 +765,8 @@ def optimize_game_balance(
     max_games: int = None,
     adaptive_strategy: str = "linear",
     balance_threshold: float = 0.1,
+    seed: int = None,
+    acq_func: str = "EI",
 ) -> Dict[str, float]:
     """
     Convenience function to optimize game balance.
@@ -800,8 +811,10 @@ def optimize_game_balance(
         n_iterations=n_iterations,
         adaptive_strategy=adaptive_strategy,
         balance_threshold=balance_threshold,
+        seed=seed,
+        acq_func=acq_func,
     )
-    
+
     best_theta = optimizer.optimize(n_iterations=n_iterations, resume_from=resume_from)
     
     return best_theta

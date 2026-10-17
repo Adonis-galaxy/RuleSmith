@@ -250,29 +250,66 @@ def run_single_game(
     return result
 
 
+_WORKER_LLM_CACHE = {}
+
+
+def _worker_llm(model_name):
+    """Load (or reuse) an LLM in this worker process.
+
+    The cache keeps weights loaded across the games a pooled worker runs.
+    The model name is always passed so that every worker loads the
+    requested model.
+    """
+    from .llm_client import get_llm_client
+    if model_name not in _WORKER_LLM_CACHE:
+        _WORKER_LLM_CACHE[model_name] = get_llm_client(model_name=model_name, use_mock=False)
+    return _WORKER_LLM_CACHE[model_name]
+
+
+def _set_worker_cuda_visible_devices(gpu_slot):
+    """Pin this worker to one GPU, respecting a parent CUDA_VISIBLE_DEVICES list.
+
+    With CUDA_VISIBLE_DEVICES=0,1,2,4,5,6 in the parent, slot 3 must mean
+    physical GPU 4, not the string "3". The parent list is recorded on the
+    first call because later calls see the already-narrowed value.
+    """
+    parent = os.environ.get('CIVMINI_PARENT_GPUS')
+    if parent is None:
+        parent = os.environ.get('CUDA_VISIBLE_DEVICES', '').strip()
+        os.environ['CIVMINI_PARENT_GPUS'] = parent
+    parts = [p.strip() for p in parent.split(',') if p.strip()]
+    if 0 <= gpu_slot < len(parts):
+        os.environ['CUDA_VISIBLE_DEVICES'] = parts[gpu_slot]
+    else:
+        os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_slot)
+
+
 def run_single_game_worker(args):
     """Worker function for parallel game execution."""
     theta, game_idx, config, use_checker, verbose, multi_action_mode, game_log_file, gpu_id = args
-    
+
     # Set GPU for this worker
     if gpu_id is not None:
-        os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu_id)
-    
-    # Import here to avoid issues with multiprocessing
-    from .llm_client import get_llm_client
-    
+        _set_worker_cuda_visible_devices(gpu_id)
+
+    # Distinct reproducible seed per game (CIVMINI_SEED_BASE set by the driver)
+    seed_base = os.environ.get('CIVMINI_SEED_BASE')
+    if seed_base is not None:
+        from .utils import set_random_seed
+        set_random_seed(int(seed_base) + game_idx)
+
     # Create LLM instance(s) for this worker
     empire_model = getattr(config, 'empire_model', None)
     nomads_model = getattr(config, 'nomads_model', None)
-    
+
     if empire_model and nomads_model and empire_model != nomads_model:
         # Different models
-        empire_llm = get_llm_client(model_name=empire_model, use_mock=False)
-        nomads_llm = get_llm_client(model_name=nomads_model, use_mock=False)
+        empire_llm = _worker_llm(empire_model)
+        nomads_llm = _worker_llm(nomads_model)
         llm = empire_llm  # Default
     else:
-        # Same model or not specified
-        llm = get_llm_client(use_mock=False)
+        # Same model (or single --model): still pass the name through
+        llm = _worker_llm(empire_model or nomads_model)
         empire_llm = None
         nomads_llm = None
     
@@ -352,7 +389,9 @@ def run_multiple_games(
                     logger.info(f"Completed game {idx+1}/{n_games}")
                 except Exception as e:
                     logger.error(f"Game {game_idx+1} failed: {e}")
-                    # Create dummy result
+                    if os.environ.get('CIVMINI_ALLOW_DUMMY') != '1':
+                        # Recording a crash as a Draw would bias win rates and the draw term
+                        raise RuntimeError(f"Game {game_idx+1} failed") from e
                     results[game_idx] = GameResult(
                         winner="Draw", turns_played=0,
                         empire_score=0, nomads_score=0,

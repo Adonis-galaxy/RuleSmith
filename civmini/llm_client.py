@@ -22,6 +22,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+def _allow_dummy() -> bool:
+    """Dummy fallbacks are for offline tests only; real runs fail fast."""
+    return os.environ.get("CIVMINI_ALLOW_DUMMY") == "1"
+
+
 class InternVLLM:
     """
     Wrapper for InternVL or compatible language models.
@@ -91,7 +96,10 @@ class InternVLLM:
             
         except Exception as e:
             logger.error(f"Failed to load model: {e}", exc_info=True)
-            logger.warning("Falling back to dummy model for testing...")
+            if not _allow_dummy():
+                # Fail instead of continuing with a placeholder model.
+                raise RuntimeError(f"Failed to load {model_name_or_path}") from e
+            logger.warning("Falling back to dummy model (CIVMINI_ALLOW_DUMMY=1)")
             self.model = None
             self.tokenizer = None
     
@@ -117,7 +125,7 @@ class InternVLLM:
             Generated text response
         """
         if self.model is None or self.tokenizer is None:
-            # Dummy response for testing
+            # Only reachable when CIVMINI_ALLOW_DUMMY=1 let a failed load through
             return self._dummy_response(user_prompt)
         
         try:
@@ -192,7 +200,9 @@ class InternVLLM:
             
         except Exception as e:
             logger.error(f"Error during generation: {e}", exc_info=True)
-            logger.warning("Falling back to dummy response")
+            if not _allow_dummy():
+                raise
+            logger.warning("Falling back to dummy response (CIVMINI_ALLOW_DUMMY=1)")
             return self._dummy_response(user_prompt)
     
     def _dummy_response(self, user_prompt: str) -> str:

@@ -25,13 +25,16 @@ class TeeLogger:
     
     def write(self, message):
         self.terminal.write(message)
-        self.log.write(message)
         self.terminal.flush()
-        self.log.flush()
+        if not self.log.closed:
+            self.log.write(message)
+            self.log.flush()
     
     def flush(self):
+        # Interpreter shutdown flushes stdout after close(); a raise here exits with rc=120
         self.terminal.flush()
-        self.log.flush()
+        if not self.log.closed:
+            self.log.flush()
     
     def close(self):
         self.log.close()
